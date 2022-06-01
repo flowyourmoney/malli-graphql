@@ -1,0 +1,35 @@
+{:source-paths ["src" "development" "tests"]
+ :dev-http {8080 "public"}
+
+ :dependencies
+ [[metosin/malli "0.8.4"]
+  [camel-snake-kebab "0.4.2"]
+  [cljs-bean "1.7.0"]]
+
+ :builds
+ {:dev
+  {:target :node-library
+   :output-to "out/dev.js"
+   :exports {}}
+
+  :malli-graphql
+  {:target :node-library
+   :output-to "node_modules/malli-graphql.js"
+   :exports {:set-gql-registry!
+             malli-graphql.core/set-gql-registry!
+             :malli->graphql
+             malli-graphql.core/malli->graphql
+             :read-malli-registry-edn
+             malli-graphql.core/read-malli-registry-edn
+             :convert-malli-registry-edn
+             malli-graphql.core/convert-malli-registry-edn}}
+
+  :test
+  {:target :node-test
+   :output-to "out/test.js"
+   :ns-regexp "tests\\."
+   :test-dir "tests"
+   :autorun true}}}
+
+;; (do (shadow/watch :dev) (shadow/repl :dev))
+

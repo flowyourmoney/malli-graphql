@@ -1,0 +1,3 @@
+["a" [:Object [:x :String]]
+ "b" [:or "a" :Int]
+ "c" [:or "a" "b" [:= :c]]]
