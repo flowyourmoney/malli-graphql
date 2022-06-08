@@ -4,7 +4,7 @@
             #?(:cljs [malli-graphql.utils :refer [clean]])
             [malli-graphql.ast :refer [->ast]]
             [malli-graphql.core :as gql :refer [ast->g-ast set-gql-registry! nullable?
-                                                malli->graphql read-malli-registry-edn
+                                                malli->graphql malli-registry-edn->graphql
                                                 registry-vals->graphql stringify]]))
 
 #?(:clj (use-fixtures :each (fn [f] (set-gql-registry!) (f)))
@@ -179,11 +179,14 @@
           s2-ast (malli->graphql [:Object [:a :String]] {})]
       (is (= s1-ast s2-ast)))))
 
-(deftest read-edn
+(deftest convert-registry-edn
   (testing "read malli schemas registry from edn file"
     (is (= (registry-vals->graphql
             ["a" [:Object [:x :String]]
              "b" [:or "a" :Int]
              "c" [:or "a" "b" [:= :c]]] {})
-           (read-malli-registry-edn "tests/resources/test_registry.edn" {})))))
+           (malli-registry-edn->graphql
+                 "tests/resources/test_registry.edn"
+                 nil
+                 {})))))
 

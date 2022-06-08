@@ -52,6 +52,11 @@
               [:depth :int]
               [:root-name :string]])
 
+(def SupportedProperties [:maybe
+                          [:map
+                           [:type-name {:optional true} :string]
+                           [:extend {:optional true} :any]]])
+
 (defn- -|single-val [children]
   (let [singleton [:cat any?]]
     (m/validate singleton children)
@@ -138,14 +143,25 @@
 (defn ->nullable-children [gnode]
   (update-children gnode ->nullable))
 
-(defn- gnode-props [gnode] (some-> gnode :node :schema m/properties))
+(defn- -|gnode-props
+  [{:keys [options node]}]
+  (let [{:keys [any-props?]} options
+        schema (:schema node)
+        props (when schema (m/properties schema))]
+    (if (or any-props?
+            (m/validate SupportedProperties props))
+      props
+      (throw (ex-info "schema had un-supported properties. Use `any-props?` option to override"
+                      (m/explain SupportedProperties props))))))
+
+;; (defn- -|gnode-prop [gnode prop] (m/validate ))
 
 (defn- root-name [gnode] (get-in gnode [:context :root-name] *undefined-type-name*))
 
 (defn- ref-name [gnode] (get-in gnode [:context :ref-name]))
 
 (defn- gql-type [gnode]
-  (-> gnode gnode-props :gql-type))
+  (-> gnode -|gnode-props :gql-type))
 
 (defn- type-name [gnode]
   (-> (gql-type gnode)
@@ -153,7 +169,7 @@
       :type-name))
 
 (defn- type-extend [gnode]
-  (when (-> gnode gnode-props :extend) "extend"))
+  (when (-> gnode -|gnode-props :extend) "extend"))
 
 (defn- inc-depth [gnode]
   (update-in gnode [:context :depth]
@@ -163,7 +179,7 @@
   (update gnode :context #(dissoc % :nullable)))
 
 (defn- stringify-def-scalar [gnode]
-  (when-some [def-val (:default (gnode-props gnode))]
+  (when-some [def-val (:default (-|gnode-props gnode))]
     (case (get-in gnode [:node :type])
       :string (s-lib/format "\"%s\"" def-val)
       (str def-val))))
@@ -323,7 +339,7 @@
               options
               context
               (assoc node :primitive-name builtin-name
-                     :default-value (:default (gnode-props node)))
+                     :default-value (:default (-|gnode-props node)))
               nil)))
 
 (defmethod -ast->g-ast [:type :float] [node options context] (scalar-node node options context "Float"))
@@ -408,7 +424,7 @@
          (str/join *line-separator*))))
 
 (defn registry-vals->graphql
-  "Takes a map-like flat vector (of keys and values) and converts it to GraphQL.
+  "Takes a map-like flat vector (of reg-keys and values) and converts it to GraphQL.
   In Node.js, adding in `options` a truthy value to `:clean?` prettifys generated GraphQL"
   [registry-entries options]
   (let [#?@(:clj [println-stderr #(binding [*out* *err*] (println %))])
@@ -420,19 +436,39 @@
                   (println-stderr "WARNING: `clean?` option only supported in cljs")) identity]
           :cljs [(:clean? options) clean]))))
 
-(defn read-malli-registry-edn
+(defn read-edn
+  "Load malli registry edn from an io/reader source.
+  See `registry-vals->graphql` for options"
+  [source]
+  #?(:cljs (read-string (read-file source))
+     :clj (try
+            (with-open [r (io/reader source)]
+              (edn/read (PushbackReader. r)))
+            (catch java.io.IOException e
+              (throw (ex-info (s-lib/format "Couldn't open '%s': %s\n" source (.getMessage e)) {})))
+            (catch RuntimeException e
+              (throw (ex-info (s-lib/format "Error parsing edn file '%s': %s\n" source (.getMessage e)) {}))))))
+
+(defn read-concat-edn
   "Load malli registry edn from an io/reader source and convert to graphql.
   See `registry-vals->graphql` for options"
-  [source options]
-  (let [registry #?(:cljs (read-string (read-file source))
-                    :clj (try
-                           (with-open [r (io/reader source)]
-                             (edn/read (PushbackReader. r)))
-                           (catch java.io.IOException e
-                             (throw (ex-info (s-lib/format "Couldn't open '%s': %s\n" source (.getMessage e)) {})))
-                           (catch RuntimeException e
-                             (throw (ex-info (s-lib/format "Error parsing edn file '%s': %s\n" source (.getMessage e)) {})))))]
-    (registry-vals->graphql registry options)))
+  [sources]
+  (reduce into
+          (for [source sources]
+            (read-edn source))))
+
+(defn malli-registry-edn->graphql
+  "Load malli registry edn from an io/reader source and convert to graphql.
+  Provide registry sources as a sequence, where each source gets output using the others as registries.
+  See `registry-vals->graphql` for options"
+  ([sources options]
+   (for [batch (take (count sources) (iterate next (cycle sources)))
+         :let [[primary-source & secondary-sources] (take (count sources) batch)]]
+     (malli-registry-edn->graphql primary-source secondary-sources options)))
+  ([primary-source secondary-sources options]
+   (let [full-registry (apply hash-map (read-concat-edn (conj secondary-sources primary-source)))
+         primary-registry (read-edn primary-source)]
+     (registry-vals->graphql primary-registry (assoc options :registry full-registry)))))
 
 #?(:clj (def write-file clojure.core/spit)
    :cljs (def write-file utils/write-file))
@@ -440,12 +476,11 @@
 (defn convert-malli-registry-edn
   "Load malli registry edn from an io/reader source and write converted graphql to `out-file`."
   [source out-path options]
-  (write-file out-path (read-malli-registry-edn source options)))
+  (write-file out-path (malli-registry-edn->graphql source options)))
 
 ;; ;;;
 ;; ;;; Usage as a node cli program
 ;; ;;;
-
 
 ;; #?(:cljs (nodejs/enable-util-print!)
 

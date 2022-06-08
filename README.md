@@ -2,7 +2,7 @@
 
 [![Clojars Project](https://img.shields.io/clojars/v/org.clojars.flowyourmoney/malli-graphql.svg)](https://clojars.org/org.clojars.flowyourmoney/malli-graphql)
 
-/State: early testing!/
+*State: early testing!*
 
 A library for generating [GraphQL](https://graphql.org/) schemas from [Malli schemas](https://github.com/metosin/malli)
 
@@ -14,7 +14,7 @@ Aliases for supported GraphQL types (see Features) are provided for convenience.
 
 They point to `:map` `:or` `:enum` `:vector` `:int` `:double` `:string` `:boolean` malli schemas.
 
-In order to differentiate between /Objects/, /Input Objects/, and /Schemas/, schema properties are used (see tests for examples).
+In order to differentiate between *Objects*, *Input Objects*, and *Schemas*, schema properties are used (see tests for examples).
 
 ### Converting schemas
 1. Add the dependency according to your dependency management toolchain from [Clojars](https://clojars.org/org.clojars.flowyourmoney/malli-graphql).
@@ -40,4 +40,4 @@ No validation is performed for schemas!
 Descriptions, Directives, contentless type declarations, as well as many other optional features are not implemented.
 
 ## Acknowledgements
-This library is based on a [malli-ts](https://github.com/flowyourmoney/malli-ts)
+This library is based on [malli-ts](https://github.com/flowyourmoney/malli-ts)
