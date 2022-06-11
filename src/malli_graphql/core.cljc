@@ -58,8 +58,8 @@
                            [:extend {:optional true} :any]]])
 
 (defn- -|single-val [children]
-  (let [singleton [:cat any?]]
-    (m/validate singleton children)
+  (let [one-tuple [:cat any?]]
+    (m/validate one-tuple children)
     (first children)))
 
 (defn- -|pair-vals [children]
@@ -153,8 +153,6 @@
       props
       (throw (ex-info "schema had un-supported properties. Use `any-props?` option to override"
                       (m/explain SupportedProperties props))))))
-
-;; (defn- -|gnode-prop [gnode prop] (m/validate ))
 
 (defn- root-name [gnode] (get-in gnode [:context :root-name] *undefined-type-name*))
 
@@ -363,11 +361,10 @@
                                     context]
   (let [args-type (get args :type)
         args-items (get args :items)
-        args-names (cond
-                     args-names args-names
-                     (= args-type :catn) (map (fn [[n]] (csk/->camelCaseString n))
-                                              args-items)
-                     :else (take (count args) letter-args))
+        args-names (or args-names
+                       (case args-type
+                         :catn (map (comp name first) args-items)
+                         :cat (take (count args) letter-args)))
         args (if (= args-type :catn)
                (map (fn [[_ a]] a) args-items)
                args-items)]
@@ -377,7 +374,7 @@
                                   (map (partial kv->entry-g-ast options (merge context {:kind :fn-pars}) node))
                                   (GArgumentsDefinition. options context {})
                                   (transform))
-                           ;; calls transform
+                             ;; calls transform
                              (-ast->g-ast ret options context)]))))
 
 (defmethod -ast->g-ast [:type :ID] [node options context] (scalar-node node options context "ID"))
@@ -390,11 +387,12 @@
             (if (map? s)
               (into [t (assoc s :gql-type t-name)] rst)
               (into [t {:gql-type t-name}] tail)))]
-    (postwalk #(if (vector? %) (cond-> %
-                                 (= :Object (first %)) (set-type-prop ::object)
-                                 (= :InputObject (first %)) (set-type-prop ::input-object)
-                                 (= :Schema (first %)) (set-type-prop ::gql-schema))
-                   %) vec-schema)))
+    (postwalk #(if (vector? %)
+                 (cond-> %
+                   (= :Object (first %)) (set-type-prop ::object)
+                   (= :InputObject (first %)) (set-type-prop ::input-object)
+                   (= :Schema (first %)) (set-type-prop ::gql-schema))
+                 %) vec-schema)))
 
 (defn -malli->graphql
   [schema options & [context]]
