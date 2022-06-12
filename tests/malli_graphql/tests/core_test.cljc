@@ -150,7 +150,11 @@
 
 (deftest function-nodes
   (testing "serialization of plain function"
-    (let [schema-str (stringify (ast->g-ast (->ast [:map {:gql-type ::gql/object} [:fn-name [:=> [:catn [:x :String] [:y :Int]] :Int]]]) {}))]
+    (let [schema-str (-> [:map {:gql-type ::gql/object}
+                          [:fn-name [:=> [:catn [:x :String] [:y :Int]] :Int]]]
+                         ->ast
+                         (ast->g-ast {})
+                         stringify)]
       (is (= "type UNDEFINED {fn-name(x:String! y:Int!):Int!}" schema-str))))
   (testing "serialization of function with default argument"
     (let [schema-str

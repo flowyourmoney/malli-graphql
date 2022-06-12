@@ -16,17 +16,33 @@
    [malli-graphql.ast :refer [->ast]])
   #?(:clj (:import java.io.PushbackReader)))
 
-(def gql-builtin-types {:Object (m/-map-schema)
-                        :InputObject (m/-map-schema)
-                        :Schema (m/-map-schema)
-                        :Union (m/-or-schema)
-                        :Enum (m/-enum-schema)
-                        :List (m/-collection-schema {:type :vector, :pred vector?, :empty []})
-                        :Int (m/-int-schema)
-                        :Float (m/-double-schema)
-                        :String (m/-string-schema)
-                        :Boolean (m/-boolean-schema)
-                        :ID (m/-simple-schema {:type :ID, :pred string?})})
+(def graphql-type->schema
+  {:Object (m/-map-schema)
+   :InputObject (m/-map-schema)
+   :Schema (m/-map-schema)
+   :Union (m/-or-schema)
+   :Enum (m/-enum-schema)
+   :List (m/-collection-schema {:type :vector, :pred vector?, :empty []})
+   :Int (m/-int-schema)
+   :Float (m/-double-schema)
+   :String (m/-string-schema)
+   :Boolean (m/-boolean-schema)
+   :ID (m/-simple-schema {:type :ID, :pred string?})})
+
+(defn graphql-type->malli-schema [schema-kw]
+  (case schema-kw
+    :Object :map
+    :InputObject :map
+    :Schema :map
+    :Union :or
+    :Enum :enum
+    :List :vector
+    :Int :int
+    :Float :double
+    :String :string
+    :Boolean :boolean
+    :ID (throw (ex-info "ID is not a malli built-in schema" {}))
+    schema-kw))
 
 (def gql-type-attributes
   {::object {:type-name "type"}
@@ -40,7 +56,7 @@
   (mr/set-default-registry!
    (mr/composite-registry
     (mr/fast-registry (m/default-schemas))
-    gql-builtin-types)))
+    graphql-type->schema)))
 
 ;; additional fields included in G-AST node after transformation
 (def Node [:map
@@ -110,7 +126,7 @@
         (some? (:const node)) :const
         :else [:type :any]))
 
-;; each method calls transform 
+;; each method calls transform
 (defmulti -ast->g-ast
   #'dispatch-ast->g-ast)
 
@@ -289,7 +305,7 @@
 (defrecord GObject [options context node children]
   GNode
   (type-def [this val-defs]
-    (str/join *inline-separator*
+    (str/join *line-separator*
               (keep identity
                     [(type-extend this)
                      (type-name this)
@@ -306,7 +322,7 @@
                                  (map (partial kv->entry-g-ast options context {}))
                                  (map transform)))))
 
-;; Internal representation of a constant. Used for enums, function keywords, 
+;; Internal representation of a constant. Used for enums, function keywords
 (defrecord -GConst [options context node children]
   GNode
   (transform [this] this)
