@@ -1,7 +1,6 @@
 (ns malli-graphql.utils
   (:require [clojure.string :as str]
             [clojure.walk :refer [postwalk]]
-            [malli-graphql.core :refer [add-default-properties graphql-type->malli-schema]]
             ["graphql" :refer [buildSchema printSchema]]))
 
 (def clean
@@ -23,9 +22,4 @@
   (->> (str/join "\n" (map read-file in-files))
        clean
        (.writeFileSync fs (or out-file (str (last in-files) ".cleaned.graphql")))))
-
-(defn ->pure-malli [vec-schema]
-  (->> vec-schema
-       add-default-properties
-       (postwalk graphql-type->malli-schema)))
 

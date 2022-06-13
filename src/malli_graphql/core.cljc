@@ -10,6 +10,7 @@
    [clojure.walk :refer [postwalk]]
    [clojure.string :as str]
    [clojure.edn :as edn]
+   [clojure.pprint :as pp]
    [malli.core :as m]
    [malli.registry :as mr]
    [camel-snake-kebab.core :as csk]
@@ -29,20 +30,27 @@
    :Boolean (m/-boolean-schema)
    :ID (m/-simple-schema {:type :ID, :pred string?})})
 
-(defn graphql-type->malli-schema [schema-kw]
-  (case schema-kw
-    :Object :map
-    :InputObject :map
-    :Schema :map
-    :Union :or
-    :Enum :enum
-    :List :vector
-    :Int :int
-    :Float :double
-    :String :string
-    :Boolean :boolean
-    :ID (throw (ex-info "ID is not a malli built-in schema" {}))
-    schema-kw))
+(defn graphql-type->malli-schema
+  ([schema-kw]
+   graphql-type->malli-schema schema-kw nil)
+  ([schema-kw & [{:keys [convert-custom?]}]]
+   (letfn [(err-missing-schema [schema-kw]
+             (throw (ex-info (str (name schema-kw) " does not have an malli built-in equivalent") {})))]
+     (case schema-kw
+       :Object :map
+       :InputObject :map
+       :Schema :map
+       :Union :or
+       :Enum :enum
+       :List :vector
+       :Int :int
+       :Float :double
+       :String :string
+       :Boolean :boolean
+       :ID (if convert-custom?
+             (err-missing-schema :ID)
+             :ID)
+       schema-kw))))
 
 (def gql-type-attributes
   {::object {:type-name "type"}
@@ -395,8 +403,12 @@
 
 (defmethod -ast->g-ast [:type :ID] [node options context] (scalar-node node options context "ID"))
 
+;;;
+;;; Functions for working with malli schemas
+;;;
+
 (defn add-default-properties
-  "`add-default-properties` takes a malli vector schema and adds type-specific properties"
+  "Takes a malli vector schema and adds type-specific properties"
   [vec-schema]
   (letfn [(set-type-prop [[t & [s & rst :as tail]] t-name]
                           ;; check if the schema vector has properties
@@ -438,21 +450,20 @@
          (str/join *line-separator*))))
 
 (defn registry-vals->graphql
-  "Takes a map-like flat vector (of reg-keys and values) and converts it to GraphQL.
-  In Node.js, adding in `options` a truthy value to `:clean?` prettifys generated GraphQL"
-  [registry-entries options]
+  "Takes a map-like flat vector (of registry-keys and values) (e.g. [\"SchemaName\" [:enum :b :c]])
+  and converts it to GraphQL. The cljs supports prettifying using a truthy `:clean?` as an `options`"
+  [registry-vec options]
   (let [#?@(:clj [println-stderr #(binding [*out* *err*] (println %))])
         registry-m (sequence (comp (partition-all 2)
                                    (map (fn [[k v]] [k (add-default-properties v)])))
-                             registry-entries)]
+                             registry-vec)]
     (cond-> (-registry-kvs->graphql registry-m options)
       #?@(:clj [(when (:clean? options)
                   (println-stderr "WARNING: `clean?` option only supported in cljs")) identity]
           :cljs [(:clean? options) clean]))))
 
 (defn read-edn
-  "Load malli registry edn from an io/reader source.
-  See `registry-vals->graphql` for options"
+  "Load malli registry edn from an io/reader source."
   [source]
   #?(:cljs (read-string (read-file source))
      :clj (try
@@ -463,13 +474,10 @@
             (catch RuntimeException e
               (throw (ex-info (s-lib/format "Error parsing edn file '%s': %s\n" source (.getMessage e)) {}))))))
 
-(defn read-concat-edn
-  "Load malli registry edn from an io/reader source and convert to graphql.
-  See `registry-vals->graphql` for options"
+(defn read-concat-registry-vec
+  "Load malli registry edn from an io/reader source and convert to graphql."
   [sources]
-  (reduce into
-          (for [source sources]
-            (read-edn source))))
+  (reduce into (map read-edn sources)))
 
 (defn malli-registry-edn->graphql
   "Load malli registry edn from an io/reader source and convert to graphql.
@@ -480,7 +488,7 @@
          :let [[primary-source & secondary-sources] (take (count sources) batch)]]
      (malli-registry-edn->graphql primary-source secondary-sources options)))
   ([primary-source secondary-sources options]
-   (let [full-registry (apply hash-map (read-concat-edn (conj secondary-sources primary-source)))
+   (let [full-registry (apply hash-map (read-concat-registry-vec (conj secondary-sources primary-source)))
          primary-registry (read-edn primary-source)]
      (registry-vals->graphql primary-registry (assoc options :registry full-registry)))))
 
@@ -491,6 +499,14 @@
   "Load malli registry edn from an io/reader source and write converted graphql to `out-file`."
   [source out-path options]
   (write-file out-path (malli-registry-edn->graphql source options)))
+
+(defn ->standard-malli [vec-schema & [options]]
+  (->> vec-schema
+       add-default-properties
+       (postwalk #(graphql-type->malli-schema % options))))
+
+(defn standardize-registry-edn [source-edn out-path]
+  (->> source-edn read-edn ->standard-malli pp/pprint with-out-str  (write-file out-path)))
 
 ;; ;;;
 ;; ;;; Usage as a node cli program
