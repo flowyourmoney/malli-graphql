@@ -119,6 +119,25 @@
 
 (defn- update-children [gnode f] (update gnode :children (partial map f)))
 
+(defn- -|gnode-props
+  [{:keys [options node]}]
+  (let [{:keys [any-props?]} options
+        schema (:schema node)
+        props (when schema (m/properties schema))]
+    (if (or any-props?
+            (m/validate SupportedProperties props))
+      props
+      (throw (ex-info "schema had un-supported properties. Use `any-props?` option to override"
+                      (m/explain SupportedProperties props))))))
+
+
+(defprotocol GNode
+  (type-def [this val-defs] "returns the type definition string for the AST type")
+  (transform-children [this] "transforms ast parsed from malli to g-ast specific to GraphQL")
+  (transform [this] "recursively transform ast to g-ast if type is not wrapping")
+  (stringify [this] "stringify node and child nodes")
+  (enclose [this strs] "uses characters to separate (and enclose) stringified children"))
+
 (defn- dispatch-ast->g-ast [node options context]
   ;; raise exception if schemas that would result in nesting are encountered
   (check-depth! (:depth context) {:node node})
@@ -155,6 +174,58 @@
       {:root-name $ref
        :depth 0}))))
 
+(defmethod -ast->g-ast :external-type [{:keys [schema]} _ _]
+  (::external-type (m/properties schema)))
+
+;; 3.12 (Non-)Nullable (malli asumes non-null by default)
+(defmethod -ast->g-ast :maybe [node options context] (transform (GNullable. options context node [(first (:maybe node))])))
+
+;; 3.11 List
+(defmethod -ast->g-ast [:type :array] [node options context] (transform (GList. options context node [(:items node)])))
+
+;; 3.5 Scalars
+(defn- scalar-node [node options context builtin-name]
+  (transform (GScalar.
+              options
+              context
+              (assoc node :primitive-name builtin-name
+                     :default-value (:default (-|gnode-props node)))
+              nil)))
+
+(defmethod -ast->g-ast [:type :float] [node options context] (scalar-node node options context "Float"))
+(defmethod -ast->g-ast [:type :integer] [node options context] (scalar-node node options context "Int"))
+(defmethod -ast->g-ast [:type :string] [node options context] (scalar-node node options context "String"))
+(defmethod -ast->g-ast [:type :boolean] [node options context] (scalar-node node options context "Boolean"))
+(defmethod -ast->g-ast :enum [node options context] (transform (GEnum. options context node (:enum node))))
+(defmethod -ast->g-ast :union [node options context] (transform (GUnion. options context node (:union node))))
+(defmethod -ast->g-ast :const [node options context] (transform (-GConst. options context (assoc node :const-val (:const node)) nil)))
+
+(defmethod -ast->g-ast [:type :object] [{:keys [properties] :as node} options context]
+  (transform (GObject. options context node properties)))
+
+(def letter-args (for [n (cons " " (map str (range)))
+                       c "abcdefghijklmnopqrstuvwxyz"]
+                   (str c n)))
+
+;; 3.6.1 Field Arguments
+(defmethod -ast->g-ast [:type :=>] [{:keys [args ret] :as node}
+                                    {:keys [args-names] :as options}
+                                    context]
+  (let [args-type (get args :type)
+        args-items (get args :items)
+        args-names (or args-names
+                       (case args-type
+                         :catn (map (comp name first) args-items)
+                         :cat (take (count args) letter-args)))
+        args (if (= args-type :catn)
+               (map (fn [[_ a]] a) args-items)
+               args-items)]
+    (transform (-GFunction. options context {:kind :fn}
+                            [(map list args-names args) 
+                             ret]))))
+
+(defmethod -ast->g-ast [:type :ID] [node options context] (scalar-node node options context "ID"))
+
 (defn ast->g-ast
   ([node options context]
    (-ast->g-ast node options context))
@@ -167,20 +238,11 @@
 (defn ->nullable-children [gnode]
   (update-children gnode ->nullable))
 
-(defn- -|gnode-props
-  [{:keys [options node]}]
-  (let [{:keys [any-props?]} options
-        schema (:schema node)
-        props (when schema (m/properties schema))]
-    (if (or any-props?
-            (m/validate SupportedProperties props))
-      props
-      (throw (ex-info "schema had un-supported properties. Use `any-props?` option to override"
-                      (m/explain SupportedProperties props))))))
+(defn- root-name [gnode]
+  (get-in gnode [:context :root-name] *undefined-type-name*))
 
-(defn- root-name [gnode] (get-in gnode [:context :root-name] *undefined-type-name*))
-
-(defn- ref-name [gnode] (get-in gnode [:context :ref-name]))
+(defn- ref-name [gnode]
+  (get-in gnode [:context :ref-name]))
 
 (defn- gql-type [gnode]
   (-> gnode -|gnode-props :gql-type))
@@ -222,13 +284,6 @@
                          (get-in gnode [:context :non-nullable])
                          (nullable? gnode)) \!)))
 
-(defprotocol GNode
-  (type-def [this val-defs] "returns the type definition string for the AST type")
-  (transform-children [this] "transforms ast parsed from malli to g-ast specific to GraphQL")
-  (transform [this] "recursively transform ast to g-ast if type is not wrapping")
-  (stringify [this] "stringify node and child nodes")
-  (enclose [this strs] "uses characters to separate (and enclose) stringified children"))
-
 ;; 3.11. List
 (defrecord GList [options context node children]
   GWrappingType
@@ -261,7 +316,7 @@
                       (when-let [def-str (stringify-def-scalar this)]
                         [\= def-str])))))
 
-  ;; 3.8 Unions
+;; 3.8 Unions
 (defrecord GUnion [options context node children]
   GNode
   (type-def [this val-defs]
@@ -313,7 +368,7 @@
 (defrecord GObject [options context node children]
   GNode
   (type-def [this val-defs]
-    (str/join *line-separator*
+    (str/join *inline-separator*
               (keep identity
                     [(type-extend this)
                      (type-name this)
@@ -324,7 +379,7 @@
   (transform [this] (-> this inc-depth transform-children))
   (stringify [{:keys [children] :as this}]
     (suffix-! this (or (ref-name this)
-                       (type-def this (enclose this (str/join *inline-separator* (map stringify children)))))))
+                       (type-def this (enclose this (str/join *line-separator* (map stringify children)))))))
   (transform-children [{:keys [options context] :as this}]
     (update this :children #(->> %
                                  (map (partial kv->entry-g-ast options context {}))
@@ -343,65 +398,14 @@
 
 (defrecord -GFunction [options context node children]
   GNode
-  (transform [this] this)
+  (transform [this] (transform-children this))
+  (transform-children [{[args ret] :children :as this}]
+    (assoc this :children [(->> args
+                                (map (partial kv->entry-g-ast options (merge context {:kind :fn-pars}) node))
+                                (GArgumentsDefinition. options context {})
+                                transform)
+                           (-ast->g-ast ret options context)]))
   (stringify [{:keys [children]}] (apply s-lib/format "%s:%s" (map stringify (-|pair-vals children)))))
-
-(defmethod -ast->g-ast :external-type [{:keys [schema]} _ _]
-  (::external-type (m/properties schema)))
-
-;; 3.12 (Non-)Nullable (malli asumes non-null by default)
-(defmethod -ast->g-ast :maybe [node options context] (transform (GNullable. options context node [(first (:maybe node))])))
-
-;; 3.11 List
-(defmethod -ast->g-ast [:type :array] [node options context] (transform (GList. options context node [(:items node)])))
-
-;; 3.5 Scalars
-(defn- scalar-node [node options context builtin-name]
-  (transform (GScalar.
-              options
-              context
-              (assoc node :primitive-name builtin-name
-                     :default-value (:default (-|gnode-props node)))
-              nil)))
-
-(defmethod -ast->g-ast [:type :float] [node options context] (scalar-node node options context "Float"))
-(defmethod -ast->g-ast [:type :integer] [node options context] (scalar-node node options context "Int"))
-(defmethod -ast->g-ast [:type :string] [node options context] (scalar-node node options context "String"))
-(defmethod -ast->g-ast [:type :boolean] [node options context] (scalar-node node options context "Boolean"))
-(defmethod -ast->g-ast :enum [node options context] (transform (GEnum. options context node (:enum node))))
-(defmethod -ast->g-ast :union [node options context] (transform (GUnion. options context node (:union node))))
-(defmethod -ast->g-ast :const [node options context] (transform (-GConst. options context (assoc node :const-val (:const node)) nil)))
-
-(defmethod -ast->g-ast [:type :object] [{:keys [properties] :as node} options context]
-  (transform (GObject. options context node properties)))
-
-(def letter-args (for [n (cons " " (map str (range)))
-                       c "abcdefghijklmnopqrstuvwxyz"]
-                   (str c n)))
-
-;; 3.6.1 Field Arguments
-(defmethod -ast->g-ast [:type :=>] [{:keys [args ret] :as node}
-                                    {:keys [args-names] :as options}
-                                    context]
-  (let [args-type (get args :type)
-        args-items (get args :items)
-        args-names (or args-names
-                       (case args-type
-                         :catn (map (comp name first) args-items)
-                         :cat (take (count args) letter-args)))
-        args (if (= args-type :catn)
-               (map (fn [[_ a]] a) args-items)
-               args-items)]
-    ;; -GFunction exceptionally instantiates children and calls transform on them
-    (transform (-GFunction. options context {:kind :fn}
-                            [(->> (map list args-names args)
-                                  (map (partial kv->entry-g-ast options (merge context {:kind :fn-pars}) node))
-                                  (GArgumentsDefinition. options context {})
-                                  (transform))
-                             ;; calls transform
-                             (-ast->g-ast ret options context)]))))
-
-(defmethod -ast->g-ast [:type :ID] [node options context] (scalar-node node options context "ID"))
 
 ;;;
 ;;; Functions for working with malli schemas

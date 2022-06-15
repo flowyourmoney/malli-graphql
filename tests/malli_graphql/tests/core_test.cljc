@@ -81,14 +81,14 @@
                          [:hardcover :Boolean]
                          [:illustrated [:maybe :Boolean]]]
                         (malli->graphql {} {:root-name "Book"}))]
-        (is (= "type Book {hardcover:Boolean! illustrated:Boolean}" schema-str)))))
+        (is (= "type Book {hardcover:Boolean!\nillustrated:Boolean}" schema-str)))))
   (testing "Schema"
     (testing "for schemas the name isn't displayed"
       (let [schema-str (-> ["DontDisplayMe" [:map {:gql-type ::gql/gql-schema}
                                              [:query [:maybe [:= :Query]]]
                                              [:mutation [:maybe [:= :Mutation]]]]]
                            (registry-vals->graphql {}))]
-        (is (= "schema {query:Query mutation:Mutation}" schema-str))))))
+        (is (= "schema {query:Query\nmutation:Mutation}" schema-str))))))
 
 (deftest enum
   (testing "simple enum types"
