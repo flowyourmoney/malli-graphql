@@ -25,7 +25,7 @@ In order to differentiate between *Objects*, *Input Objects*, and *Schemas*, sch
 
 | function name              | conversion description                                                      | arguments                                 |
 |----------------------------|-----------------------------------------------------------------------------|-------------------------------------------|
-| malli->graphql             | malli schema to graphql string (name as options {:root-name <schema name>}) | [vec-schema & [options context :as args]] |
+| malli->graphql             | malli schema to graphql string (name as options {:root-name \<schema name\>}) | [vec-schema & [options context :as args]] |
 | registry-vals->graphql     | map-like registry vector of names (string) & vector schemas to string       | [registry-vec options]                    |
 | convert-malli-registry-edn | file containing registry-vals (as above) to graphql file                    | [source out-path options]                 |
 
