@@ -61,3 +61,6 @@ package-lock.json
 resources/brepl_client.js
 .shadow-cljs
 *.clojars-token
+.clj-kondo
+.lsp
+.calva
