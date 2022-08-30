@@ -177,54 +177,10 @@
 (defmethod -ast->g-ast :external-type [{:keys [schema]} _ _]
   (::external-type (m/properties schema)))
 
-;; 3.12 (Non-)Nullable (malli asumes non-null by default)
-(defmethod -ast->g-ast :maybe [node options context] (transform (GNullable. options context node [(first (:maybe node))])))
-
-;; 3.11 List
-(defmethod -ast->g-ast [:type :array] [node options context] (transform (GList. options context node [(:items node)])))
-
-;; 3.5 Scalars
-(defn- scalar-node [node options context builtin-name]
-  (transform (GScalar.
-              options
-              context
-              (assoc node :primitive-name builtin-name
-                     :default-value (:default (-|gnode-props node)))
-              nil)))
-
-(defmethod -ast->g-ast [:type :float] [node options context] (scalar-node node options context "Float"))
-(defmethod -ast->g-ast [:type :integer] [node options context] (scalar-node node options context "Int"))
-(defmethod -ast->g-ast [:type :string] [node options context] (scalar-node node options context "String"))
-(defmethod -ast->g-ast [:type :boolean] [node options context] (scalar-node node options context "Boolean"))
-(defmethod -ast->g-ast :enum [node options context] (transform (GEnum. options context node (:enum node))))
-(defmethod -ast->g-ast :union [node options context] (transform (GUnion. options context node (:union node))))
-(defmethod -ast->g-ast :const [node options context] (transform (-GConst. options context (assoc node :const-val (:const node)) nil)))
-
-(defmethod -ast->g-ast [:type :object] [{:keys [properties] :as node} options context]
-  (transform (GObject. options context node properties)))
-
 (def letter-args (for [n (cons " " (map str (range)))
                        c "abcdefghijklmnopqrstuvwxyz"]
                    (str c n)))
 
-;; 3.6.1 Field Arguments
-(defmethod -ast->g-ast [:type :=>] [{:keys [args ret] :as node}
-                                    {:keys [args-names] :as options}
-                                    context]
-  (let [args-type (get args :type)
-        args-items (get args :items)
-        args-names (or args-names
-                       (case args-type
-                         :catn (map (comp name first) args-items)
-                         :cat (take (count args) letter-args)))
-        args (if (= args-type :catn)
-               (map (fn [[_ a]] a) args-items)
-               args-items)]
-    (transform (-GFunction. options context {:kind :fn}
-                            [(map list args-names args) 
-                             ret]))))
-
-(defmethod -ast->g-ast [:type :ID] [node options context] (scalar-node node options context "ID"))
 
 (defn ast->g-ast
   ([node options context]
@@ -406,6 +362,51 @@
                                 transform)
                            (-ast->g-ast ret options context)]))
   (stringify [{:keys [children]}] (apply s-lib/format "%s:%s" (map stringify (-|pair-vals children)))))
+
+;; 3.12 (Non-)Nullable (malli asumes non-null by default)
+(defmethod -ast->g-ast :maybe [node options context] (transform (GNullable. options context node [(first (:maybe node))])))
+
+;; 3.11 List
+(defmethod -ast->g-ast [:type :array] [node options context] (transform (GList. options context node [(:items node)])))
+
+;; 3.5 Scalars
+(defn- scalar-node [node options context builtin-name]
+  (transform (GScalar.
+              options
+              context
+              (assoc node :primitive-name builtin-name
+                     :default-value (:default (-|gnode-props node)))
+              nil)))
+
+(defmethod -ast->g-ast [:type :ID] [node options context] (scalar-node node options context "ID"))
+(defmethod -ast->g-ast [:type :float] [node options context] (scalar-node node options context "Float"))
+(defmethod -ast->g-ast [:type :integer] [node options context] (scalar-node node options context "Int"))
+(defmethod -ast->g-ast [:type :string] [node options context] (scalar-node node options context "String"))
+(defmethod -ast->g-ast [:type :boolean] [node options context] (scalar-node node options context "Boolean"))
+(defmethod -ast->g-ast :enum [node options context] (transform (GEnum. options context node (:enum node))))
+(defmethod -ast->g-ast :union [node options context] (transform (GUnion. options context node (:union node))))
+(defmethod -ast->g-ast :const [node options context] (transform (-GConst. options context (assoc node :const-val (:const node)) nil)))
+
+(defmethod -ast->g-ast [:type :object] [{:keys [properties] :as node} options context]
+  (transform (GObject. options context node properties)))
+
+;; 3.6.1 Field Arguments
+(defmethod -ast->g-ast [:type :=>] [{:keys [args ret] :as node}
+                                    {:keys [args-names] :as options}
+                                    context]
+  (let [args-type (get args :type)
+        args-items (get args :items)
+        args-names (or args-names
+                       (case args-type
+                         :catn (map (comp name first) args-items)
+                         :cat (take (count args) letter-args)))
+        args (if (= args-type :catn)
+               (map (fn [[_ a]] a) args-items)
+               args-items)]
+    (transform (-GFunction. options context {:kind :fn}
+                            [(map list args-names args)
+                             ret]))))
+
 
 ;;;
 ;;; Functions for working with malli schemas

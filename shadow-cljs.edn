@@ -19,8 +19,6 @@
              malli-graphql.core/set-gql-registry!
              :malli->graphql
              malli-graphql.core/malli->graphql
-             :read-malli-registry-edn
-             malli-graphql.core/read-malli-registry-edn
              :convert-malli-registry-edn
              malli-graphql.core/convert-malli-registry-edn}}
 
