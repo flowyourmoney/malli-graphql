@@ -13,16 +13,7 @@
   :source-paths
   ["src/malli_graphql"]
 
-  :plugins [[lein-cljsbuild "1.1.8"]]
-
-  :cljsbuild {:builds [{:source-paths ["src"]
-                        :compiler {:output-to "out/main.js"
-                                   :optimization :advanced}}]}
-
-  :hooks [leiningen.cljsbuild]
-
   :repositories
   {"clojars" {:url "https://clojars.org/repo"
-              :sign-releases false}}
-  :jvm-opts ["-XX:-OmitStackTraceInFastThrow"])
+              :sign-releases false}})
 
